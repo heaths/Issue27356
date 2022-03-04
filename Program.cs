@@ -1,0 +1,55 @@
+﻿using System.Security.Cryptography.X509Certificates;
+using Azure.Identity;
+using Azure.Security.KeyVault.Certificates;
+
+if (args.Length == 0 || !Uri.TryCreate(args[0], UriKind.Absolute, out var vaultUri))
+{
+    throw new Exception("Missing required vault URI parameter");
+}
+
+const string exportableCertName = "issue27356-exportable";
+const string nonExportableCertName = "issue27356-nonexportable";
+
+DefaultAzureCredential credential = new();
+CertificateClient client = new(vaultUri, credential);
+
+Task Create(string name, bool exportable)
+{
+    CertificatePolicy policy = new(WellKnownIssuerNames.Self, $"CN={name}")
+    {
+        KeyType = CertificateKeyType.Rsa,
+        KeySize = 4096,
+        Exportable = exportable,
+    };
+
+    Console.WriteLine($"Creating certificate {name}...");
+
+    return client.StartCreateCertificateAsync(name, policy)
+                 .ContinueWith(t => t.Result.WaitForCompletionAsync().AsTask());
+}
+
+await Task.WhenAll(new[]
+{
+    Create(exportableCertName, true),
+    Create(nonExportableCertName, false),
+});
+
+Console.WriteLine("Certificates created");
+
+async Task Download(string name)
+{
+    try
+    {
+        Console.WriteLine($"Downloading certificate {name}...");
+
+        X509Certificate2 cert = await client.DownloadCertificateAsync(name);
+        Console.WriteLine($"{name} has private key: {cert.HasPrivateKey}");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to download {name}: {ex}");
+    }
+}
+
+await Download(exportableCertName);
+await Download(nonExportableCertName);
