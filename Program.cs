@@ -7,10 +7,19 @@ if (args.Length == 0 || !Uri.TryCreate(args[0], UriKind.Absolute, out var vaultU
     throw new Exception("Missing required vault URI parameter");
 }
 
+if (args.Length < 2 || !uint.TryParse(args[1], out var count))
+{
+    count = 50;
+}
+
 const string exportableCertName = "issue27356-exportable";
 const string nonExportableCertName = "issue27356-nonexportable";
 
-DefaultAzureCredential credential = new();
+DefaultAzureCredential credential = new(new DefaultAzureCredentialOptions()
+{
+    ExcludeManagedIdentityCredential = true,
+    ExcludeInteractiveBrowserCredential = Console.IsOutputRedirected,
+});
 CertificateClient client = new(vaultUri, credential);
 
 Task Create(string name, bool exportable)
@@ -35,21 +44,26 @@ await Task.WhenAll(new[]
 });
 
 Console.WriteLine("Certificates created");
+Console.WriteLine("Downloading certificates...");
 
 async Task Download(string name)
 {
     try
     {
-        Console.WriteLine($"Downloading certificate {name}...");
-
         X509Certificate2 cert = await client.DownloadCertificateAsync(name);
         Console.WriteLine($"{name} has private key: {cert.HasPrivateKey}");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Failed to download {name}: {ex}");
+        Console.WriteLine($"\x1b[31mFailed to download {name}:\x1b[0m {ex.Message}");
     }
 }
 
-await Download(exportableCertName);
-await Download(nonExportableCertName);
+List<Task> tasks = new((int)(count * 2));
+for (var i = 0; i < count; i++)
+{
+    tasks.Add(Download(exportableCertName));
+    tasks.Add(Download(nonExportableCertName));
+}
+
+await Task.WhenAll(tasks);
